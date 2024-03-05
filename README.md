@@ -1,102 +1,113 @@
 # Solidity_HomeWork_5-3
 # Code dự án Ngân Hàng với Sodidity
  ```solidity
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Contract cha chứa các chức năng cơ bản
 contract BaseUserManagement {
-    address public admin; // khai báo địa chỉ cho admin và để là public
-    mapping(address => bool) public managers;
-    mapping(address => bool) public users;
+   address public admin;
+   mapping(address => bool) public managers;
+   mapping(address => bool) public users;
 
-    constructor() {
-        admin = msg.sender; // gán người gọi contract là admin, khi ai đó gọi contract thì sẽ mặc định là admin
+   constructor() {
+       admin = msg.sender; // gán người gọi contract là admin, khi ai đó gọi contract thì sẽ mặc định là admin
+   }
+
+   modifier onlyAdmin {
+       require(msg.sender == admin, "Only admin can perform this action");
+       _;
+   }
+
+   modifier onlyManager {
+       require(managers[msg.sender] || msg.sender == admin, "Only manager can perform this action");
+       _;
+   }
+
+   function addManager(address _manager) public onlyAdmin {
+       managers[_manager] = true;
+   }
+
+   function removeManager(address _manager) public onlyAdmin {
+       managers[_manager] = false;
+   }
+
+   function addUser(address _user) public onlyManager {
+       users[_user] = true;
+   }
+
+   function removeUser(address _user) public onlyManager {
+       users[_user] = false;
+   }
+
+   function checkUserRole(address _user) public view returns (string memory) {
+       if (admin == _user) {
+           return "Admin";
+       } else if (managers[_user]) {
+           return "Manager";
+       } else if (users[_user]) {
+           return "User";
+       } else {
+           return "Unknown";
+       }
+   }
+}
+contract MoneyManagement is BaseUserManagement {
+
+    mapping(address => uint) public balances; //
+
+// hàm gửi tiền
+    function deposit() public payable  {
+        balances[msg.sender] += msg.value;
     }
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin, "Only admin can perform this action");
-        _;
-    }
-
-    modifier onlyManager() {
-        require(managers[msg.sender] || msg.sender == admin, "Only manager can perform this action");
-        _;
-    }
-
-    function addManager(address _manager) public onlyAdmin {
-        managers[_manager] = true;
-    }
-
-    function removeManager(address _manager) public onlyAdmin {
-        managers[_manager] = false;
-    }
-
-    function addUser(address _user) public onlyManager {
-        users[_user] = true;
-    }
-
-    function removeUser(address _user) public onlyManager {
-        users[_user] = false;
-    }
-
-    function checkUserRole(address _user) public view returns (string memory) {
-        if (admin == _user) {
-            return "Admin";
-        } else if (managers[_user]) {
-            return "Manager";
-        } else if (users[_user]) {
-            return "User";
-        } else {
-            return "Unknown";
-        }
+// hàm rút tiền
+    function withDraw (uint amount) public {
+        require(balances[msg.sender] >= amount, "Cannot withdraw money");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
     }
 }
 
-// Contract con kế thừa từ contract cha BaseUserManagement
-contract ExtendedUserManagement is BaseUserManagement {
-    // Chức năng mới: chỉ admin có thể thêm manager
-    function addManager(address _manager) public onlyAdmin {
-        super.addManager(_manager); // Gọi hàm từ contract cha
+contract LoanManagement is BaseUserManagement {
+    uint private interestRate; // Lãi suất theo năm, đơn vị là phần trăm (ví dụ: 5 tương ứng với 5%)
+
+    // Thiết lập lãi suất
+    function setInterestRate(uint _interestRate) public onlyAdmin {
+        require(_interestRate >= 0, "Interest rate must be non-negative");
+        interestRate = _interestRate;
     }
 
-    // Chức năng mới: chỉ admin có thể xóa manager
-    function removeManager(address _manager) public onlyAdmin {
-        super.removeManager(_manager); // Gọi hàm từ contract cha
+    // Hàm tính lãi suất cho một khoản vay
+    function calculateInterest(uint _principal, uint _months) public view returns (uint) {
+        // Tính lãi suất theo tháng
+        uint monthlyRate = (_principal * interestRate) / (12 * 100);
+        // Tính lãi suất tổng cộng sau _months tháng
+        uint totalInterest = monthlyRate * _months;
+        return totalInterest;
     }
 
-    // Chức năng mới: chỉ manager hoặc admin có thể thêm user
-    function addUser(address _user) public onlyManager {
-        super.addUser(_user); // Gọi hàm từ contract cha
-    }
-
-    // Chức năng mới: chỉ manager hoặc admin có thể xóa user
-    function removeUser(address _user) public onlyManager {
-        super.removeUser(_user); // Gọi hàm từ contract cha
-    }
-
-    // Chức năng mới: kiểm tra vai trò của người dùng
-    function checkUserRole(address _user) public view returns (string memory) {
-        return super.checkUserRole(_user); // Gọi hàm từ contract cha
-    }
-}
-
-// Hợp đồng xử lý gửi và rút tiền, kế thừa từ hợp đồng quản lý người dùng
-contract MoneyManagement is ExtendedUserManagement {
-    // Sự kiện khi có tiền được gửi
-    event Deposit(address indexed user, uint amount);
-
-    // Hàm gửi tiền
-    function deposit() public payable {
-        require(users[msg.sender], "Only registered users can deposit");
-        emit Deposit(msg.sender, msg.value);
-    }
-
-    // Hàm rút tiền
-    function withdraw(uint _amount) public {
-        require(users[msg.sender], "Only registered users can withdraw");
-        require(address(this).balance >= _amount, "Insufficient balance");
+    // Hàm gửi tiền vay
+    function borrow(uint _amount, uint _months) public payable {
+        require(users[msg.sender], "Only registered users can borrow");
+        require(_amount > 0, "Borrowed amount must be greater than 0");
+        
+        uint totalInterest = calculateInterest(_amount, _months);
+        uint totalPayment = _amount + totalInterest;
+        
+        require(msg.value >= totalPayment, "Insufficient funds to cover borrowed amount and interest");
+        
+        // Transfer borrowed amount to user
         payable(msg.sender).transfer(_amount);
+        
+        // Emit event for borrowing
+        emit Borrow(msg.sender, _amount, _months, totalInterest, totalPayment);
     }
+
+    // Sự kiện khi có tiền được vay
+    event Borrow(address indexed user, uint amount, uint months, uint interest, uint totalPayment);
 }
+
+
+
 
 ```
